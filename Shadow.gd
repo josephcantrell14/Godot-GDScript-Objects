@@ -9,7 +9,7 @@ var velocity := Vector3()
 var targetPosition := Vector3()
 var previousJunction := Vector3()
 
-func _ready() -> void:
+func _ready() -> void: #executed when Shadow is added as a child of the SceneTree object
     var difficulty :float= get_parent().get_node("HUD").difficulty/100
     walkSpeed += 8*(difficulty-1)
     speed = walkSpeed
@@ -22,9 +22,6 @@ func _physics_process(_delta:float) -> void: #runs at a fixed interval of millis
                 $AnimationPlayer.stop()
         elif not $AnimationPlayer.is_playing():
             $AnimationPlayer.play("Walk")
-        """var movement = velocity*delta*direction
-        global_transform.origin += movement
-        velocity = move_and_slide(velocity,Vector3.UP)"""
         velocity = direction*speed
         velocity.y = 0
         velocity = move_and_slide(velocity,Vector3.UP)
@@ -32,9 +29,6 @@ func _physics_process(_delta:float) -> void: #runs at a fixed interval of millis
         rotation_degrees.x = 90
         rotation_degrees.y += 180
         collide(direction)
-        """if global_transform.origin.distance_to(targetPosition) < .2:
-            if speed == lurchSpeed: #stop lurching when close to the player
-                speed = walkSpeed"""
         if global_transform.origin.distance_to(get_parent().get_node("Player").global_transform.origin) < 12: #target almost reached
             seek()
 func _on_RaycastTimer_timeout(): #AStar calculations every 5 seconds because of a changing algorithm goal (moving target)
@@ -100,19 +94,19 @@ func appear() -> void: #appear to the player
     $Particles3.emitting = true
     $Particles4.emitting = true
     $Particles5.emitting = true
-func point() -> void:
+func point() -> void: #point at the player
     look_at(get_parent().get_node("Player").global_transform.origin,Vector3.UP)
     rotation_degrees.x = 90
     rotation_degrees.y += 180
     $AnimationPlayer.play("Point")
-func lurch() -> void:
+func lurch() -> void: #quickly move toward the player
     speed = lurchSpeed
     targetPosition = get_parent().get_node("Player").global_transform.origin
     look_at(get_parent().get_node("Player").global_transform.origin,Vector3.UP)
     rotation_degrees.x = 90
     rotation_degrees.y += 180
     seeking = true
-func slow() -> void:
+func slow() -> void: #slow movement and target acquisition speed
     speed = slowSpeed
     $RaycastTimer.start() #prevent the shadow from retargeting your new position
 func collide(direction) -> void: #check for collisions
@@ -136,9 +130,9 @@ func collide(direction) -> void: #check for collisions
                 body.breakDownDoor()
                 return #sound
 func _on_AnimationPlayer_animation_finished(anim_name):
-    if anim_name == "Point":
+    if anim_name == "Point": #lurch after pointing
         lurch()
-    elif anim_name == "Lurch":
+    elif anim_name == "Lurch": #fade out after lurching
         speed = walkSpeed
         if get_parent().get_node("HUD").storyProgress == 2:
             fade()
