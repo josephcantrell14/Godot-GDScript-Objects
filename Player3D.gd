@@ -6,28 +6,28 @@ export(NodePath) var head_path
 export(NodePath) var cam_path
 const FOV := 87.0
 var mouse_axis := Vector2()
-onready var head : Spatial = get_node(head_path)
-onready var cam : Camera = get_node(cam_path)
+onready var head :Spatial= get_node(head_path)
+onready var cam :Camera= get_node(cam_path)
 #Move
 var velocity := Vector3()
 var direction := Vector3()
 var moveAxis := Vector2()
 var ads := false
 var sprinting := false
-const sprintTimeInit : int = 4
-var sprintTime : float = sprintTimeInit
+const sprintTimeInit :int= 4
+var sprintTime :float= sprintTimeInit
 var crouched := false
 var prone := false
-var crouchHeight :float = 0
-var proneHeight :float = 0
-var proneCrouchHeight :float = 0
+var crouchHeight :float= 0
+var proneHeight :float= 0
+var proneCrouchHeight :float= 0
 var crouchRise := true
 var proneRise := true
 var cover := false  #taking cover from demons
 var scanning := false  #raycast for sighting reactions
 #Walk
 const FLOOR_NORMAL := Vector3(0,1,0)
-const FLOOR_MAX_ANGLE: float = deg2rad(46.0)
+const FLOOR_MAX_ANGLE :float= deg2rad(46.0)
 const gravityVelocity := 68.0
 var gravity := gravityVelocity
 const walkVelocity := 26
