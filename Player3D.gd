@@ -427,3 +427,13 @@ func _on_RecoveryTimer_timeout() -> void:
 func _on_RecoveryStartTimer_timeout() -> void:
     rotation_degrees = Vector3()
     $RecoveryTimer.start() #time it with particles
+func jumpScare() -> void:
+    var collision :Object= $Head/Camera/RayCast.get_collider()
+    if collision:
+        if collision.is_in_group("wraiths"): #wraith adrenaline jump-scare
+            $Head/Camera/RayCast.cast_to = Vector3(0,0,-14)
+            scanning = false
+            collision.point()
+            Engine.time_scale = .4
+            $SlowmoSound.play()
+            $SlowmoTimer.start()
