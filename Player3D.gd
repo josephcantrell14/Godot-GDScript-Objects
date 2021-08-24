@@ -12,6 +12,7 @@ onready var cam :Camera= get_node(cam_path)
 var velocity := Vector3()
 var direction := Vector3()
 var moveAxis := Vector2()
+var immobilized := true
 var ads := false
 var sprinting := false
 const sprintTimeInit :int= 4
@@ -23,6 +24,7 @@ var proneHeight :float= 0
 var proneCrouchHeight :float= 0
 var crouchRise := true
 var proneRise := true
+var surface :int= 0 #used for footsteps
 var cover := false  #taking cover from demons
 var scanning := false  #raycast for sighting reactions
 #Walk
@@ -30,14 +32,16 @@ const FLOOR_NORMAL := Vector3(0,1,0)
 const FLOOR_MAX_ANGLE :float= deg2rad(46.0)
 const gravityVelocity := 68.0
 var gravity := gravityVelocity
-const walkVelocity := 26
+var walkVelocity := 26
 var walkSpeed := walkVelocity
-var sprintSpeed := 51
+var sprintSpeed := 52
 var acceleration := 12
 var deacceleration := 20
-var jumpHeight := 40
+var jumpHeight := 41
 var airControl := .25
 var fallHeight := 0.0
+var flashlightRange := 110
+var flashlightOCRange := 220
 #export(float, 0.0, 1.0, 0.05) var airControl = 0.3
 #Fly
 var flySpeed := 10
@@ -47,9 +51,10 @@ var flying := false
 var alive := false
 var maxHP := 100
 var hp := 0
+var invincible := false
 #Positions
 const startPosition := Vector3(-286.8,20.7,704) #cabin bed
-const frontDoorPosition := Vector3(-251,25,691)
+const frontDoorPosition := Vector3(-254,25,691)
 const boxPosition := Vector3(-271.2,70,872.7)
 
 func _ready() -> void:
@@ -57,6 +62,7 @@ func _ready() -> void:
     crouchHeight = $Collision.shape.height - $CollisionCrouch.shape.height
     proneHeight = $Collision.shape.height - $CollisionProne.shape.height
     proneCrouchHeight = $CollisionCrouch.shape.height - $CollisionProne.shape.height
+    set_physics_process(false)
 func _input(event: InputEvent) -> void:
     if alive:
         if event is InputEventMouseMotion:
@@ -65,23 +71,26 @@ func _input(event: InputEvent) -> void:
         elif get_parent().input == 2 and event is InputEventJoypadMotion:
             cameraRotationController()
         if Input.is_action_just_pressed("select"):
-            collide()
+            select()
         elif Input.is_action_just_pressed("flashlight"):
             flashlight()
 func _physics_process(delta:float) -> void:
-    walk(delta)
-    if alive:
-        moveAxis.x = Input.get_action_strength("moveForward") - Input.get_action_strength("moveBackward")
-        moveAxis.y = Input.get_action_strength("moveRight") - Input.get_action_strength("moveLeft")
-        if scanning: #scan for reactions
-            jumpScare()
-        elif Input.is_action_pressed("aim"): #ADS
-            ads(delta)
-            if $Head/Camera/Flashlight/FlashlightRayCast.enabled:
-                flashlightCollide(delta)
-        else:
-            hipfire(delta)
+    if not immobilized:
+        var floored :bool= is_on_floor()
+        move(delta,floored)
+        if alive:
+            moveAxis.x = Input.get_action_strength("moveForward") - Input.get_action_strength("moveBackward")
+            moveAxis.y = Input.get_action_strength("moveRight") - Input.get_action_strength("moveLeft")
+            if scanning: #scan for reactions
+                jumpScare()
+            elif Input.is_action_pressed("aim"): #ADS
+                ads(delta,floored)
+                if $Head/Camera/Flashlight/FlashlightRayCast.enabled:
+                    flashlightCollide(delta)
+            else:
+                hipfire(delta)
 func start() -> void:
+    set_physics_process(true)
     Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
     #$Head/Camera.current = true
     walkSpeed = walkVelocity
@@ -92,7 +101,8 @@ func start() -> void:
     sprintTime = sprintTimeInit
     crouchRise = true
     proneRise = true
-    $Head/Camera/RayCast.cast_to = Vector3(0,0,-14)
+    immobilized = false
+    $Head/Camera/RayCast.cast_to = Vector3(0,0,-15)
     if $Head/Camera/Flashlight/FlashlightRayCast.enabled:
         disableFlashlightOverclock()
     if get_parent().debug:
@@ -107,22 +117,22 @@ func hipfire(delta: float) -> void:
         get_parent().get_node("HUD/Reticle").show()
         ads = false
         disableFlashlightOverclock()
-func ads(delta: float) -> void:
+func ads(delta:float, floored:bool) -> void:
     if not ads:
         ads = true
         get_parent().get_node("HUD/Reticle").hide()
         if $Head/Camera/Flashlight.visible:
             flashlightOverclock()
-        if sprinting and is_on_floor():
+        if sprinting and floored:
             sprinting = false
     else:
-        cam.set_fov(lerp(cam.fov,60,delta*6))
-func collide() -> void:
+        cam.set_fov(lerp(cam.fov,62,delta*6))
+func select() -> void:
     var collision :Object= $Head/Camera/RayCast.get_collider()
     if collision:
-        print(str(collision.name.replace("@", "").replace(str(int(collision.name)), "")))
+        #print(str(collision.name.replace("@", "").replace(str(int(collision.name)), "")))
         if collision.is_in_group("doors"):
-            if get_parent().get_node("HUD").storyProgress != 8:
+            if get_parent().get_node("HUD").storyProgress != 9: #no doors at ending (overcomes random locking glitch)
                 collision.toggleDoor()
             else:
                 collision.get_node("LockedSound").play()
@@ -132,21 +142,53 @@ func collide() -> void:
                 elif get_parent().get_node("HUD").storyProgress == 2: #front door
                     get_parent().unlockDoor(1)
         elif collision.is_in_group("lights"):
-            collision.get_node("Light").visible = not collision.get_node("Light").visible
+            if not collision.is_in_group("flameLight1") and not collision.is_in_group("flameLight2"):
+                collision.get_node("Light").visible = not collision.get_node("Light").visible
+            elif collision.is_in_group("flameLight1") and not get_parent().flameLight1:
+                collision.get_node("Light").show()
+                collision.get_parent().get_node("Flame").emitting = true
+                get_parent().flameLight1 = true
+                if get_parent().flameLight1 and get_parent().flameLight2:
+                    get_parent().atticActivateFlameDoor()
+            elif collision.is_in_group("flameLight2") and not get_parent().flameLight2:
+                collision.get_node("Light").show()
+                collision.get_parent().get_node("Flame").emitting = true
+                get_parent().flameLight2 = true
+                if get_parent().flameLight1 and get_parent().flameLight2:
+                    get_parent().atticActivateFlameDoor()
         elif collision.is_in_group("books"):
             var spark = preload("res://SparkExplosion.tscn").instance()
             get_parent().add_child(spark)
             spark.global_transform.origin = collision.global_transform.origin
             if collision.is_in_group("book5"):
                 get_parent().severedHallwayDoor()
-            elif collision.is_in_group("book8"):
-                get_parent().snow(3)
+                $BookSound.play()
+            elif collision.is_in_group("book13") and get_parent().get_node("HUD").storyProgress == 10:
+                get_parent().outsideFarHoleFlame()
+                var interest = get_parent().get_node("Audio/Interest")
+                interest.stream = preload("res://Sounds/synthpluck-interest.wav")
+                interest.volume_db = -20
+                interest.play()
+            elif collision.is_in_group("book14") and get_parent().get_node("HUD").storyProgress == 11:
+                var cloud = preload("res://CholinergicCloud.tscn").instance()
+                get_parent().add_child(cloud)
+                cloud.global_transform.origin = Vector3(518,40,-555)
+                get_parent().hideHoleIceWall()
+                var interest = get_parent().get_node("Audio/Interest")
+                interest.stream = preload("res://Sounds/synthpluck-interest-long.wav")
+                interest.volume_db = -19
+                interest.play()
+            #elif collision.is_in_group("book8"):
+                #get_parent().snow(15000)
             elif collision.is_in_group("book12"):
                 get_parent().ending()
-            for i in range(1,10):
+            else:
+                $BookSound.play()
+            for i in range(1,16): #numBooks+1
                 var bookString :String= "book" + str(i)
                 if collision.is_in_group(bookString):
                     get_parent().get_node("HUD").unlockBook(i)
+                    break
             collision.hide()
             collision.get_node("Collision").disabled = true
         elif collision.is_in_group("keys"):
@@ -165,7 +207,7 @@ func flashlight() -> void:
 func flashlightOverclock() -> void:
     $Head/Camera/Flashlight.light_energy = 16
     $Head/Camera/Flashlight.spot_angle = 8
-    $Head/Camera/Flashlight.spot_range = 160
+    $Head/Camera/Flashlight.spot_range = flashlightOCRange
     $Head/Camera/Flashlight/FlashlightOC.show()
     $Head/Camera/Flashlight/FlashlightRayCast.enabled = true
 func flashlightCollide(delta:float) -> void:
@@ -178,10 +220,10 @@ func flashlightCollide(delta:float) -> void:
 func disableFlashlightOverclock() -> void:
     $Head/Camera/Flashlight.light_energy = 10
     $Head/Camera/Flashlight.spot_angle = 24
-    $Head/Camera/Flashlight.spot_range = 80
+    $Head/Camera/Flashlight.spot_range = flashlightRange
     $Head/Camera/Flashlight/FlashlightOC.hide()
     $Head/Camera/Flashlight/FlashlightRayCast.enabled = false
-func walk(delta: float) -> void:
+func move(delta:float, floored:bool) -> void:
     direction = Vector3() #Input
     var aim :Basis= get_global_transform().basis
     if moveAxis.x >= 0.5:
@@ -195,15 +237,20 @@ func walk(delta: float) -> void:
     direction.y = 0
     direction = direction.normalized()
     var snap: Vector3 #Jump
-    if is_on_floor():
+    if floored:
         snap = Vector3(0,-1,0)
         if fallHeight > 0:
-            if fallHeight > 50:
+            if fallHeight > 65:
                 #print("fallen: " + str(fallHeight))
-                var damage :float= fallHeight-40
+                var damage :float= (fallHeight-55)/85*100 #55-140 fall height
                 #print("playerHit damage: " + str(damage))
-                playerHit(damage) #50-150 fall height
-                velocity.y = fallHeight/5
+                var fallVolume := fallHeight
+                if fallVolume > 200:
+                    fallVolume = 200
+                $CrunchSound.volume_db = -10 + int(7*(fallVolume/140))
+                $CrunchSound.play()
+                playerHit(damage)
+                velocity = Vector3()
             fallHeight = 0
         if Input.is_action_just_pressed("jump") and not crouched and not prone:
             snap = Vector3()
@@ -213,15 +260,20 @@ func walk(delta: float) -> void:
             crouch(delta)
         elif Input.is_action_just_pressed("prone"):
             prone(delta)
-    velocity.y -= gravity*delta #Apply Gravity
-    var playerSpeed: int #Sprint
+        else:
+            collide()
+    velocity.y -= gravity*delta
+    var playerSpeed: int
     if (Input.is_action_just_pressed("sprint") and canSprint() and moveAxis.x >= 0.5):
         playerSpeed = sprintSpeed
         cam.set_fov(lerp(cam.fov,FOV*1.06,delta*6))
         sprinting = true
+        $AnimationPlayer.playback_speed = 2
+        $FootstepsSound.pitch_scale = 1.4
     elif sprinting:
         playerSpeed = sprintSpeed
         sprintTime -= delta
+        #$FootstepsSound.pitch_scale = 1.4
         if sprintTime <= 0:
             sprinting = false
             cam.set_fov(lerp(cam.fov,FOV,delta*6))
@@ -229,12 +281,18 @@ func walk(delta: float) -> void:
             $SprintTimer.start()
             $Head/Camera/ColdBreath.emitting = true
             $BreathSound.play()
-        elif not Input.is_action_pressed("moveForward"):
+            $FootstepsSound.pitch_scale = 1
+            $AnimationPlayer.playback_speed = 1
+        elif not Input.is_action_pressed("moveForward") or crouched or prone:
             sprinting = false
             cam.set_fov(lerp(cam.fov,FOV,delta*6))
+            $FootstepsSound.pitch_scale = 1
+            $AnimationPlayer.playback_speed = 1
     else:
         playerSpeed = walkSpeed
         sprintTime += delta
+        #$FootstepsSound.pitch_scale = 1
+        #$AnimationPlayer.playback_speed = 1
         if sprintTime > sprintTimeInit:
             sprintTime = sprintTimeInit
     var tempVelocity :Vector3= velocity  #Acceleration and Deacceleration
@@ -245,8 +303,9 @@ func walk(delta: float) -> void:
         tempAcceleration = acceleration
     else:
         tempAcceleration = deacceleration
-    if not is_on_floor():
+    if not floored:
         tempAcceleration *= airControl
+        $FootstepsSound.stop()
     tempVelocity = tempVelocity.linear_interpolate(target,tempAcceleration*delta) #interpolation
     velocity.x = tempVelocity.x
     velocity.z = tempVelocity.z
@@ -302,6 +361,48 @@ func cameraRotationController() -> void:
         head.rotation_degrees = temp_rot
 func canSprint() -> bool:
     return (is_on_floor() and $SprintTimer.is_stopped() and not ads and not crouched and not prone)
+func collide() -> void: #KinematicBody collider collision
+    if velocity.length() >= .2 and not prone:
+        if not $AnimationPlayer.is_playing():
+            if crouched:
+                $AnimationPlayer.playback_speed = .54
+            else:
+                $AnimationPlayer.playback_speed = 1
+            $AnimationPlayer.play("ViewBob")
+        for i in range(get_slide_count()):
+            var collision := get_slide_collision(i)
+            if collision != null:
+                if crouched:
+                    $FootstepsSound.volume_db = -25
+                else:
+                    $FootstepsSound.volume_db = -16
+                #var collisionDistance := global_transform.origin.y-collision.position.y
+                var body := collision.collider
+                if body.is_in_group("wood"):
+                    if surface != 0:
+                        surface = 0
+                        $FootstepsSound.stream = preload("res://Sounds/footsteps.wav")
+                    if not $FootstepsSound.is_playing():
+                        $FootstepsSound.play()
+                    return
+                elif body.is_in_group("rock"):
+                    if surface != 1:
+                        surface = 1
+                        $FootstepsSound.stream = preload("res://Sounds/footsteps.wav") #change
+                    if not $FootstepsSound.is_playing():
+                        $FootstepsSound.play()
+                    return
+                elif body.is_in_group("snow"):
+                    if surface != 2:
+                        surface = 2
+                        $FootstepsSound.stream = preload("res://Sounds/footsteps-snow.wav") #change
+                    if not $FootstepsSound.is_playing():
+                        $FootstepsSound.play()
+                    return
+    else:
+        $FootstepsSound.stop()
+        if $AnimationPlayer.is_playing():
+            $AnimationPlayer.stop()
 func crouch(delta=.03) -> void:
     if prone: #crouch from prone
         if proneRise:
@@ -313,6 +414,7 @@ func crouch(delta=.03) -> void:
             $CollisionCrouch.disabled = false
             $CollisionProne.disabled = true
             global_transform.origin.y += proneCrouchHeight
+            $AnimationPlayer.playback_speed = .6
     elif not crouched: #crouch from standing
         $Collision.disabled = true
         $CollisionCrouch.disabled = false
@@ -320,6 +422,7 @@ func crouch(delta=.03) -> void:
         walkSpeed = 14
         crouched = true
         cam.set_fov(lerp(cam.fov,80,delta*6))
+        $AnimationPlayer.playback_speed = .6
     elif crouchRise: #stand from crouched
         $Collision.disabled = false
         $CollisionCrouch.disabled = true
@@ -362,10 +465,11 @@ func canRise(height:float) -> bool:
     else:
         return true
 func playerHit(damage) -> void:
-    if alive:
-        print("player damage: " + str(damage))
+    if alive and not invincible:
+        invincible = true
+        $InvincibleTimer.start()
         hp -= damage
-        bleed(5*damage + 5)
+        bleed(4.8*damage + 5)
         if hp > 0:
             $HitSound.play()
             $RecoveryStartTimer.start()
@@ -373,22 +477,28 @@ func playerHit(damage) -> void:
         else:
             end()
             $EndSound.play()
+func _on_InvincibleTimer_timeout() -> void:
+    invincible = false
 func end() -> void:
     hp = 0
-    velocity = Vector3()
-    prone()
-    rotation_degrees.z += 40
+    #velocity = Vector3()
+    if not prone:
+        prone()
+    #rotation_degrees.z += 40
     alive = false
     get_parent().get_node("Timers/GameOverTimer").start()
 func drown() -> void:
-    end()
-    velocity /= 10
-    gravity = 2
-    #prone()
-    #splash sound?
-    #$DrownSound.play() #blow bubbles in bowl of water
+    if alive:
+        end()
+        velocity = Vector3(0,velocity.y/5,0)
+        if velocity.y > 0:
+            velocity.y = -2
+        gravity = 2
+        $DrownSound.play()
 func bleed(amount) -> void:
-    var lifetime :float= 3 + 3*((float(amount)/500))
+    if amount > 480:
+        amount = 480
+    var lifetime :float= 3 + 3*((float(amount)/480))
     #print(str(amount) + " " + str(lifetime))
     get_parent().get_node("HUD/Blood").show()
     get_parent().get_node("HUD/Blood/Particles").amount = amount
@@ -399,7 +509,8 @@ func bleed(amount) -> void:
     get_parent().get_node("HUD/Blood/Particles2").emitting = true
     #print(str(lifetime) + "s for " + str(amount))
 func toBed() -> void: #teleport to bed
-    prone()
+    if not prone:
+        prone()
     global_transform.origin = startPosition
     look_at(get_parent().get_node("House/Decor/NightstandBedroomFront/Lamp/Mesh").global_transform.origin,Vector3.UP)
 func toBox() -> void:
@@ -408,7 +519,8 @@ func toBox() -> void:
     elif crouched:
         crouch()
     global_transform.origin = boxPosition
-    look_at(get_tree().get_nodes_in_group("box")[0].get_node("Nightstand/Lamp/Light").global_transform.origin,Vector3.UP)
+    velocity = Vector3()
+    look_at(global_transform.origin + Vector3(2,0,0),Vector3.UP)
     get_tree().get_nodes_in_group("box")[0].get_node("Nightstand/Lamp/Light").show()
 func toFrontDoor() -> void:
     if prone:
@@ -425,14 +537,14 @@ func _on_RecoveryTimer_timeout() -> void:
         hp = maxHP
         $RecoveryTimer.stop()
 func _on_RecoveryStartTimer_timeout() -> void:
-    rotation_degrees = Vector3()
+    #rotation_degrees = Vector3()
     $RecoveryTimer.start() #time it with particles
 func jumpScare() -> void:
     var collision :Object= $Head/Camera/RayCast.get_collider()
     if collision:
         if collision.is_in_group("wraiths"): #wraith adrenaline jump-scare
-            $Head/Camera/RayCast.cast_to = Vector3(0,0,-14)
             scanning = false
+            $Head/Camera/RayCast.cast_to = Vector3(0,0,-14)
             collision.point()
             Engine.time_scale = .4
             $SlowmoSound.play()
